@@ -934,5 +934,29 @@ module Arel
         manager.to_sql.must_be_like 'SELECT "users"."id" FROM "users"'
       end
     end
+    
+    # this test need be run under jruby
+    it 'should be threadsafe on sql generation' do
+      table   = Table.new :users
+      manager = Arel::SelectManager.new Table.engine
+      manager.from table
+      manager.project table['id']
+      manager.where(table['id'].eq(1)).where(table['name'].eq('foo'))      
+
+      results = {}
+      threads = {}
+      200.times do |i|
+        threads[i] = Thread.new { results[i] = manager.to_sql }
+      end
+      threads.values.each { |thread| thread.join }
+
+      results.values.each do |sql|
+        sql.must_be_like %{
+          SELECT "users"."id" 
+            FROM "users" 
+            WHERE "users"."id" = 1 AND "users"."name" = 'foo'
+        }
+      end
+    end
   end
 end
