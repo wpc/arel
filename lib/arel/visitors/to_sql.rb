@@ -6,20 +6,19 @@ module Arel
     class ToSql < Arel::Visitors::Visitor
       def initialize engine
         @engine         = engine
-        @connection     = nil
-        @pool           = nil
-        @last_column    = nil
         @quoted_tables  = {}
         @quoted_columns = {}
       end
 
       def accept object
-        @last_column = nil
-        @pool        = @engine.connection_pool
-        @pool.with_connection do |conn|
-          @connection = conn
+        self.last_column = self.connection = nil
+        self.pool        = @engine.connection_pool
+        pool.with_connection do |conn|
+          self.connection = conn
           super
         end
+      ensure
+        self.last_column = self.connection = nil
       end
 
       private
@@ -84,7 +83,7 @@ key on UpdateManager using UpdateManager#key=
       end
 
       def table_exists? name
-        @pool.table_exists? name
+        pool.table_exists? name
       end
 
       def column_for attr
@@ -97,7 +96,7 @@ key on UpdateManager using UpdateManager#key=
       end
 
       def column_cache
-        @pool.columns_hash
+        pool.columns_hash
       end
 
       def visit_Arel_Nodes_Values o
@@ -356,7 +355,7 @@ key on UpdateManager using UpdateManager#key=
       end
 
       def visit_Arel_Attributes_Attribute o
-        @last_column = column_for o
+        self.last_column = column_for o
         join_name = o.relation.table_alias || o.relation.name
         "#{quote_table_name join_name}.#{quote_column_name o.name}"
       end
@@ -374,7 +373,7 @@ key on UpdateManager using UpdateManager#key=
       alias :visit_Bignum                :literal
       alias :visit_Fixnum                :literal
 
-      def quoted o; quote(o, @last_column) end
+      def quoted o; quote(o, last_column) end
 
       alias :visit_ActiveSupport_Multibyte_Chars :quoted
       alias :visit_ActiveSupport_StringInquirer  :quoted
@@ -405,16 +404,24 @@ key on UpdateManager using UpdateManager#key=
       end
 
       def quote value, column = nil
-        @connection.quote value, column
+        connection.quote value, column
       end
 
       def quote_table_name name
-        @quoted_tables[name] ||= Arel::Nodes::SqlLiteral === name ? name : @connection.quote_table_name(name)
+        @quoted_tables[name] ||= Arel::Nodes::SqlLiteral === name ? name : connection.quote_table_name(name)
       end
 
       def quote_column_name name
-        @quoted_columns[name] ||= Arel::Nodes::SqlLiteral === name ? name : @connection.quote_column_name(name)
+        @quoted_columns[name] ||= Arel::Nodes::SqlLiteral === name ? name : connection.quote_column_name(name)
       end
+
+      def pool; Thread.current[:arel_pool] end
+      def pool=(v); Thread.current[:arel_pool] = v end
+      def connection; Thread.current[:arel_visitor_connection] end
+      def connection=(v); Thread.current[:arel_visitor_connection] = v end
+      def last_column; Thread.current[:arel_visitor_last_column] end
+      def last_column=(v);  Thread.current[:arel_visitor_last_column] = v end
+
     end
   end
 end
